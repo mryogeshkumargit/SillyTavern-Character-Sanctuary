@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Silly Tavern Character Card Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400;1,700&family=Georgia&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+
+    <style>
+        body {
+            background-color: #FFF0F5; /* Lavender Blush */
+            font-family: 'Georgia', serif;
+        }
+        .font-title {
+            font-family: 'Cormorant Garamond', serif;
+        }
+        .sanctuary-bg { background-color: #FFF0F5; }
+        .content-bg { background-color: #FDF5E6; }
+        .accent-bg { background-color: #E6A4B4; }
+        .accent-bg-hover:hover { background-color: #D9859A; }
+        .text-main { color: #5D4037; }
+        .text-header { color: #8B008B; }
+        .tab-active {
+            background-color: #FDF5E6;
+            color: #8B008B;
+            border-bottom: 2px solid #D9859A;
+        }
+        .tab-inactive {
+            background-color: transparent;
+            color: #5D4037;
+        }
+        /* Custom scrollbar for a delicate touch */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #FFF0F5;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #E6A4B4;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #D9859A;
+        }
+    </style>
+</head>
+<body class="sanctuary-bg text-main">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+        <header class="text-center mb-8">
+            <h1 class="font-title text-4xl md:text-5xl font-bold italic text-header">Character Card Sanctuary</h1>
+            <p class="text-lg mt-2">A web-based viewer for Silly Tavern & TavernAI character cards.</p>
+        </header>
+
+        <main>
+            <div class="bg-white/50 rounded-lg shadow-lg p-6 mb-8">
+                <label for="cardUploader" class="block text-lg font-bold text-header mb-2">Select a Character Card (.png)</label>
+                <div class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4">
+                    <input type="file" id="cardUploader" accept=".png" class="w-full text-sm text-slate-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-full file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-[#E6A4B4] file:text-white
+                        hover:file:bg-[#D9859A] transition-colors cursor-pointer"/>
+                    <button id="clearButton" class="w-full sm:w-auto accent-bg accent-bg-hover text-white font-bold py-2 px-6 rounded-full transition-colors">Clear</button>
+                </div>
+            </div>
+
+            <div id="resultsContainer" class="hidden">
+                <!-- Tabs -->
+                <div id="tabs" class="flex flex-wrap border-b border-pink-200"></div>
+
+                <!-- Tab Content -->
+                <div id="tabContent" class="content-bg p-6 rounded-b-lg"></div>
+
+                <!-- Action Buttons -->
+                <div class="flex space-x-4 mt-6">
+                    <button id="saveJsonButton" class="accent-bg accent-bg-hover text-white font-bold py-2 px-6 rounded-full transition-colors">Save JSON</button>
+                    <button id="copyJsonButton" class="accent-bg accent-bg-hover text-white font-bold py-2 px-6 rounded-full transition-colors">Copy JSON</button>
+                </div>
+            </div>
+
+            <div id="welcomeContainer" class="text-center content-bg p-8 rounded-lg shadow-inner">
+                 <div class="text-7xl mb-4">🌸</div>
+                 <h2 class="font-title text-3xl font-bold text-header">Welcome to the Sanctuary</h2>
+                 <p class="mt-2 text-lg">Please select a character card to reveal its soul.</p>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        const cardUploader = document.getElementById('cardUploader');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const welcomeContainer = document.getElementById('welcomeContainer');
+        const tabsContainer = document.getElementById('tabs');
+        const tabContentContainer = document.getElementById('tabContent');
+        const saveJsonButton = document.getElementById('saveJsonButton');
+        const copyJsonButton = document.getElementById('copyJsonButton');
+        const clearButton = document.getElementById('clearButton');
+
+        let characterData = null;
+        let characterImageSrc = null;
+
+        cardUploader.addEventListener('change', handleFileUpload);
+        clearButton.addEventListener('click', resetUI);
+
+        function resetUI() {
+            cardUploader.value = '';
+            resultsContainer.classList.add('hidden');
+            welcomeContainer.classList.remove('hidden');
+            characterData = null;
+            characterImageSrc = null;
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                characterImageSrc = URL.createObjectURL(file);
+                try {
+                    const data = extractCharacterData(new Uint8Array(arrayBuffer));
+                    if (data) {
+                        characterData = data;
+                        displayData();
+                    } else {
+                        alert("Could not find character data in this PNG file.");
+                        resetUI();
+                    }
+                } catch (error) {
+                    console.error("Error processing file:", error);
+                    alert(`An error occurred: ${error.message}`);
+                    resetUI();
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function extractCharacterData(bytes) {
+            // Skips PNG header
+            let i = 8;
+            while (i < bytes.length) {
+                const view = new DataView(bytes.buffer);
+                const length = view.getUint32(i);
+                const type = String.fromCharCode(...bytes.slice(i + 4, i + 8));
+                
+                if (type === 'tEXt' || type === 'zTXt') {
+                    const chunkData = bytes.slice(i + 8, i + 8 + length);
+                    const nullSeparatorIndex = chunkData.indexOf(0);
+                    const keyword = String.fromCharCode(...chunkData.slice(0, nullSeparatorIndex));
+
+                    if (keyword === 'chara') {
+                        let textData;
+                        if (type === 'zTXt') {
+                             // zTXt has a compression method byte after the null separator
+                            const compressedData = chunkData.slice(nullSeparatorIndex + 2);
+                            textData = pako.inflate(compressedData, { to: 'string' });
+                        } else {
+                            textData = String.fromCharCode(...chunkData.slice(nullSeparatorIndex + 1));
+                        }
+                        
+                        try {
+                           return JSON.parse(atob(textData));
+                        } catch (e) {
+                           // Fallback for non-base64 JSON
+                           return JSON.parse(textData);
+                        }
+                    }
+                }
+                i += 12 + length; // Move to the next chunk
+            }
+            return null;
+        }
+
+        function displayData() {
+            if (!characterData) return;
+
+            welcomeContainer.classList.add('hidden');
+            resultsContainer.classList.remove('hidden');
+            
+            const data = characterData.data || characterData;
+            
+            let tabs = {
+                '🌹 Summary': createSummaryContent(data),
+            };
+
+            const lorebook = data.character_book || data.lorebook;
+            if (lorebook && lorebook.entries && lorebook.entries.length > 0) {
+                 tabs['📖 Lorebook'] = createLorebookContent(lorebook);
+            }
+
+            tabs['💎 Details'] = createDetailsContent(data);
+            tabs['📜 Raw JSON'] = createRawJsonContent(characterData);
+            tabs['🖼️ Portrait'] = createPortraitContent();
+            tabs['❤️ About'] = createAboutContent();
+
+            renderTabs(tabs);
+        }
+
+        function renderTabs(tabs) {
+            tabsContainer.innerHTML = '';
+            const tabKeys = Object.keys(tabs);
+            
+            tabKeys.forEach((key, index) => {
+                const button = document.createElement('button');
+                button.innerHTML = key;
+                button.className = `py-2 px-4 font-bold text-sm transition-colors rounded-t-lg ${index === 0 ? 'tab-active' : 'tab-inactive'}`;
+                button.onclick = () => {
+                    document.querySelectorAll('#tabs button').forEach(btn => btn.className = 'py-2 px-4 font-bold text-sm transition-colors rounded-t-lg tab-inactive');
+                    button.className = 'py-2 px-4 font-bold text-sm transition-colors rounded-t-lg tab-active';
+                    tabContentContainer.innerHTML = tabs[key];
+                };
+                tabsContainer.appendChild(button);
+            });
+
+            // Display first tab content initially
+            tabContentContainer.innerHTML = tabs[tabKeys[0]];
+        }
+        
+        // --- Content Creation Functions ---
+        
+        function createStyledContent(generator) {
+            const container = document.createElement('div');
+            container.className = 'space-y-6 text-main';
+            generator(container);
+            return container.outerHTML;
+        }
+        
+        function createSummaryContent(data) {
+            return createStyledContent(container => {
+                addSection(container, 'Name', data.name);
+                addSection(container, 'Description', data.description);
+                addSection(container, 'Personality', data.personality);
+                addSection(container, 'First Message', data.first_mes);
+            });
+        }
+        
+        function createLorebookContent(lorebook) {
+            return createStyledContent(container => {
+                 lorebook.entries.forEach((entry, i) => {
+                    const entryName = entry.comment || entry.name || `Entry ${i + 1}`;
+                    const keys = entry.keys ? `<strong>Keys:</strong> ${entry.keys.join(', ')}` : '';
+                    const content = entry.content || '[No Content]';
+                    
+                    const entryHtml = `
+                        <div class="border-l-4 border-pink-200 pl-4 py-2">
+                           <h3 class="font-title text-xl italic font-bold text-header">${entryName}</h3>
+                           <p class="text-sm italic my-2">${keys}</p>
+                           <p class="whitespace-pre-wrap">${content}</p>
+                        </div>
+                    `;
+                    container.innerHTML += entryHtml;
+                 });
+            });
+        }
+
+        function createDetailsContent(data) {
+             return createStyledContent(container => {
+                const excludedKeys = ['name', 'description', 'personality', 'first_mes', 'character_book', 'lorebook'];
+                for (const [key, value] of Object.entries(data)) {
+                    if (!excludedKeys.includes(key)) {
+                        addSection(container, key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), value);
+                    }
+                }
+             });
+        }
+
+        function createRawJsonContent(data) {
+            const pre = document.createElement('pre');
+            pre.className = 'bg-gray-100 p-4 rounded text-sm overflow-x-auto';
+            pre.textContent = JSON.stringify(data, null, 2);
+            return pre.outerHTML;
+        }
+        
+        function createPortraitContent() {
+             return `<div class="flex justify-center items-center"><img src="${characterImageSrc}" class="max-w-full max-h-[70vh] rounded-lg shadow-lg" alt="Character Portrait"></div>`;
+        }
+
+        function createAboutContent() {
+            return `
+                <div class="text-center space-y-4">
+                    <h2 class="font-title text-3xl font-bold text-header">Character Card Sanctuary</h2>
+                    <p>Created with care by</p>
+                    <p class="font-bold text-lg">Yogesh Kumar Singh</p>
+                    <p class="italic text-sm text-purple-700">yogeshatreliance@gmail.com</p>
+                    <div class="border-t border-pink-200 my-6"></div>
+                    <h3 class="font-bold text-xl text-header">How to Use</h3>
+                    <ol class="text-left list-decimal list-inside space-y-2 max-w-md mx-auto">
+                        <li>Click the input area above to select a Character Card PNG file.</li>
+                        <li>The application will automatically reveal the character's soul.</li>
+                        <li>Navigate the tabs to explore the character's summary, lore, details, and portrait.</li>
+                        <li>Use the "Save JSON" or "Copy JSON" buttons to export the data.</li>
+                    </ol>
+                </div>
+            `;
+        }
+        
+        function addSection(container, title, content) {
+            if (!content) return;
+            const section = document.createElement('div');
+            const formattedContent = typeof content === 'object' ? 
+                `<pre class="bg-gray-100 p-2 rounded text-xs">${JSON.stringify(content, null, 2)}</pre>` 
+                : `<p class="whitespace-pre-wrap">${content}</p>`;
+            
+            section.innerHTML = `
+                <h2 class="font-title text-2xl italic font-bold text-header mb-2">${title}</h2>
+                ${formattedContent}
+            `;
+            container.appendChild(section);
+        }
+
+        // --- Button Actions ---
+        saveJsonButton.addEventListener('click', () => {
+            if (!characterData) return;
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(characterData, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            const name = characterData.data?.name || 'character';
+            downloadAnchorNode.setAttribute("download", name.replace(/ /g, '_') + ".json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        });
+
+        copyJsonButton.addEventListener('click', () => {
+            if (!characterData) return;
+            const jsonString = JSON.stringify(characterData, null, 2);
+            navigator.clipboard.writeText(jsonString).then(() => {
+                alert("Character JSON copied to clipboard!");
+            }, (err) => {
+                alert("Failed to copy JSON.");
+                console.error('Clipboard copy failed: ', err);
+            });
+        });
+
+    </script>
+
+</body>
+</html>
