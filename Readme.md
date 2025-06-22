@@ -4,7 +4,6 @@ A beautiful, sensual, and robust desktop application for viewing the soul of AI 
 
 This application provides an elegant and intuitive interface to extract and display the hidden JSON data within character card PNG files, revealing the character's personality, backstory, and portrait in a beautifully organized tabbed view.
 
-![Screenshot of Character Card Sanctuary](https://i.imgur.com/8a1Yj3g.png)  <!-- You can replace this with a real screenshot of the app -->
 
 ---
 
